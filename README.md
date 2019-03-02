@@ -14,6 +14,15 @@ A tool to know how well connected your node is.
 
 ./thola 100000 ./tls.cert ./readonly.macaroon 192.168.1.128:10009
 
+
+Downloading Graph
+#############################
+Sats:                | 100000
+Nodes:               | 1846
+Reachable Nodes      | 26%
+#############################
+
+
 ```
 
 
@@ -43,4 +52,4 @@ You may also need to install pkg-config.
 
 cargo run 100000 ./tls.cert ./readonly.macaroon 192.168.1.128:10009
 
-``
+```
