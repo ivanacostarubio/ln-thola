@@ -1,9 +1,8 @@
-#[macro_use]
+//#[macro_use]
 extern crate pbr;
 
 extern crate crossbeam;
 extern crate lazy_static;
-extern crate rayon;
 
 
 extern crate grpc;
@@ -12,11 +11,8 @@ extern crate thola;
 
 use std::thread;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-
-
-use rayon::prelude::*;
 
 use thola::rpc_grpc::LightningClient;
 use thola::rpc_grpc::Lightning;
@@ -25,7 +21,6 @@ use thola::macaroon_data::MacaroonData;
 
 use thola::rpc;
 use grpc::RequestOptions;
-use pbr::ProgressBar;
 
 
 fn generate_client() -> LightningClient {
@@ -73,22 +68,24 @@ fn metadata() -> RequestOptions {
 
 fn my_query_routes(satoshis: i64, remote_node: &rpc::LightningNode) ->bool { 
 
+    print!(".");
+
     let client = generate_client();
 
-        let mut query_routes_req = rpc::QueryRoutesRequest::new();
-        query_routes_req.pub_key = remote_node.pub_key.clone();
-        query_routes_req.amt = satoshis;
-        query_routes_req.num_routes = 1;
+    let mut query_routes_req = rpc::QueryRoutesRequest::new();
+    query_routes_req.pub_key = remote_node.pub_key.clone();
+    query_routes_req.amt = satoshis;
+    query_routes_req.num_routes = 1;
 
-        let node = remote_node.clone();
+    //let node = remote_node.clone();
 
-        let query_routes_res = client.query_routes( metadata(), query_routes_req);
-        let r = match query_routes_res.wait(){
-            Ok(n) => 1,
-            Err(n) => 0
-        };
+    let query_routes_res = client.query_routes( metadata(), query_routes_req);
+    let r = match query_routes_res.wait(){
+        Ok(_) => 1,
+        Err(_) => 0
+    };
 
-        return (r > 0);
+    return r > 0;
 
 }
 
@@ -100,6 +97,9 @@ fn main() {
         println!("eg: ./thola 100000 ./tls.cert ./readonly.macaroon 192.168.1.128:10009");
         return
     }
+
+
+    println!("Downloading Graph");
 
     let satoshis_env = std::env::args().into_iter().skip(1).next().unwrap();
     let satoshis = satoshis_env.parse::<i64>().unwrap();
@@ -115,10 +115,65 @@ fn main() {
     let count = ww.1.nodes.len() as usize;
     let ccc = ww.1.nodes.clone();
 
-    let result: Vec<bool> = ccc.into_iter().map(|node| my_query_routes(satoshis, &node ) ).collect() ;
-    let reachable: Vec<bool> = result.into_iter().filter(|n| n.eq(&true) ).collect();
 
 
+    let mutex = Arc::new(Mutex::new(vec![]));
+    let mut children = vec![];
+
+    for node in ccc.into_iter() {
+
+        let data = Arc::clone(&mutex);
+
+        children.push(thread::spawn(move || {
+            println!("new thread ");
+            let result = my_query_routes(satoshis, &node);
+            let mut data = data.lock().unwrap();
+            data.push(result);
+        }));
+
+    }
+
+    for child in children {
+        let _ = child.join();
+
+    }
+
+    println!("{:?}", mutex);
+
+
+
+//    let result: Vec<bool> = ccc.into_iter().map(|node| my_query_routes(satoshis, &node ) ).collect() ;
+
+
+//    let reachable: Vec<bool> = result.into_iter().filter(|n| n.eq(&true) ).collect();
+
+
+
+
+    //
+    //
+    //
+    //
+    //
+    //
+
+
+
+
+
+
+
+
+
+
+    //
+    //
+    //
+    //
+
+
+
+/*
     let r_percent = reachable.len() * 100 / count;
 
 
@@ -128,8 +183,7 @@ fn main() {
 
     println!("{0: <20} | {1: <20}", "Nodes:", count);
     println!("{0: <20} | {1: <20}%", "Reachable:", r_percent);
-
-
+*/
 
 //    println!("Total Nodes: {:?}", count);
 //    println!("{:?}% of reachable nodes", r_percent);
