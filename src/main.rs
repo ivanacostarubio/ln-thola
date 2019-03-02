@@ -1,26 +1,19 @@
 //#[macro_use]
-extern crate pbr;
-
-extern crate crossbeam;
-extern crate lazy_static;
-
-
 extern crate grpc;
 extern crate thola;
+extern crate threadpool;
+
+use threadpool::ThreadPool;
+use std::sync::mpsc::channel;
 
 
-use std::thread;
-
-use std::sync::{Arc, Mutex};
-
+use grpc::RequestOptions;
 
 use thola::rpc_grpc::LightningClient;
 use thola::rpc_grpc::Lightning;
 use thola::tls_certificate::TLSCertificate;
 use thola::macaroon_data::MacaroonData;
-
 use thola::rpc;
-use grpc::RequestOptions;
 
 
 fn generate_client() -> LightningClient {
@@ -61,14 +54,12 @@ fn metadata() -> RequestOptions {
         MacaroonData::from_file_path(macaroon_file_path)
             .unwrap()
     };
-
     
     return RequestOptions { metadata: macaroon_data.metadata(), };
 }
 
 fn my_query_routes(satoshis: i64, remote_node: &rpc::LightningNode) ->bool { 
 
-    print!(".");
 
     let client = generate_client();
 
@@ -101,6 +92,7 @@ fn main() {
 
     println!("Downloading Graph");
 
+
     let satoshis_env = std::env::args().into_iter().skip(1).next().unwrap();
     let satoshis = satoshis_env.parse::<i64>().unwrap();
     let client = generate_client();
@@ -108,88 +100,43 @@ fn main() {
     let graph_resp = client.describe_graph( metadata(), graph_req); 
     let ww = graph_resp.wait().unwrap();
 
-    /*
-     * Progress Bar
-     */
 
     let count = ww.1.nodes.len() as usize;
     let ccc = ww.1.nodes.clone();
 
+    let n_workers = 100;
+    let n_jobs = ww.1.nodes.len();
+    let pool = ThreadPool::new(n_workers);
 
-
-    let mutex = Arc::new(Mutex::new(vec![]));
-    let mut children = vec![];
+    let (tx,rx) = channel();
 
     for node in ccc.into_iter() {
 
-        let data = Arc::clone(&mutex);
+        let tx = tx.clone();
 
-        children.push(thread::spawn(move || {
-            println!("new thread ");
-            let result = my_query_routes(satoshis, &node);
-            let mut data = data.lock().unwrap();
-            data.push(result);
-        }));
+        pool.execute(move|| {
+
+            let r = my_query_routes(satoshis, &node);
+
+            let _ = tx.send(r);
+
+        });
+
 
     }
 
-    for child in children {
-        let _ = child.join();
+    let result: Vec<bool> = rx.iter().take(n_jobs).filter(|n| n.eq(&true)).collect();
 
-    }
+    let reachable: Vec<bool> = result.into_iter().filter(|n| n.eq(&true) ).collect();
 
-    println!("{:?}", mutex);
-
-
-
-//    let result: Vec<bool> = ccc.into_iter().map(|node| my_query_routes(satoshis, &node ) ).collect() ;
-
-
-//    let reachable: Vec<bool> = result.into_iter().filter(|n| n.eq(&true) ).collect();
-
-
-
-
-    //
-    //
-    //
-    //
-    //
-    //
-
-
-
-
-
-
-
-
-
-
-    //
-    //
-    //
-    //
-
-
-
-/*
     let r_percent = reachable.len() * 100 / count;
-
-
 
     println!("#############################");
     println!("{0: <20} | {1: <20}", "Sats:", satoshis);
-
     println!("{0: <20} | {1: <20}", "Nodes:", count);
-    println!("{0: <20} | {1: <20}%", "Reachable:", r_percent);
-*/
+    println!("Reachable Nodes      | {:?}% ", r_percent);
+    println!("#############################");
 
-//    println!("Total Nodes: {:?}", count);
-//    println!("{:?}% of reachable nodes", r_percent);
-//    println!("#############################");
 
 }
-
-
 
